@@ -70,6 +70,7 @@ function App() {
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterTrip, setFilterTrip] = useState('all');
+  const [selectedImage, setSelectedImage] = useState(null);
 
   // UI State
   const [chartType, setChartType] = useState('danger');
@@ -310,16 +311,29 @@ function App() {
                       <p className="danger-type">{point.danger_type}</p>
                       {point.health_status && <p className="health-status">Estado: {point.health_status}</p>}
                       {point.photo_url && (
-                        <img
-                          src={point.photo_url.startsWith('http') ? point.photo_url : supabase.storage.from('bufeo_photos').getPublicUrl(point.photo_url).data.publicUrl}
-                          alt="Peligro"
-                          onError={(e) => {
-                            // Secondary fallback attempt if bucket name was the issue
-                            if (!point.photo_url.startsWith('http')) {
-                              e.target.src = supabase.storage.from('photos').getPublicUrl(point.photo_url).data.publicUrl;
-                            }
-                          }}
-                        />
+                        <div className="popup-photo-container">
+                          <img
+                            src={point.photo_url.startsWith('http') ? point.photo_url : supabase.storage.from('bufeo_photos').getPublicUrl(point.photo_url).data.publicUrl}
+                            alt="Peligro"
+                            className="clickable-photo"
+                            onClick={() => {
+                              const url = point.photo_url.startsWith('http')
+                                ? point.photo_url
+                                : supabase.storage.from('bufeo_photos').getPublicUrl(point.photo_url).data.publicUrl;
+                              setSelectedImage(url);
+                            }}
+                            onError={(e) => {
+                              // Secondary fallback attempt if bucket name was the issue
+                              if (!point.photo_url.startsWith('http')) {
+                                const fallbackUrl = supabase.storage.from('photos').getPublicUrl(point.photo_url).data.publicUrl;
+                                e.target.src = fallbackUrl;
+                                // Update onClick for fallback as well
+                                e.target.onclick = () => setSelectedImage(fallbackUrl);
+                              }
+                            }}
+                          />
+                          <div className="photo-hint">Click para ampliar</div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -387,8 +401,18 @@ function App() {
             )}
           </div>
         </div>
-      </div >
-    </div >
+
+        {/* Full Size Image Modal */}
+        {selectedImage && (
+          <div className="modal-overlay" onClick={() => setSelectedImage(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setSelectedImage(null)}>×</button>
+              <img src={selectedImage} alt="Full size" className="modal-image" />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
