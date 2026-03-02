@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './supabase';
 import { MapContainer, TileLayer, Marker, Popup, LayersControl } from 'react-leaflet';
 import L from 'leaflet';
@@ -13,7 +13,11 @@ import {
   MousePointer2,
   Home,
   Layers as LayersIcon,
-  Map as MapIcon
+  Map as MapIcon,
+  Menu,
+  X,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
@@ -59,6 +63,81 @@ function AutoFitBounds({ points, trigger }) {
   return null;
 }
 
+// Component to handle map resize when sidebar toggles
+function MapResizer({ isSidebarOpen }) {
+  const map = useMap();
+  useEffect(() => {
+    // Wait for the CSS transition to complete (400ms)
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [isSidebarOpen, map]);
+  return null;
+}
+
+// Multi-Select Dropdown Component
+function MultiSelectDropdown({ label, options, selected, onChange, icon: Icon, placeholder }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedLabels = options
+    .filter(opt => selected.includes(opt.id))
+    .map(opt => opt.label);
+
+  return (
+    <div className="multi-select-container" ref={dropdownRef}>
+      <div className={`multi-select-trigger glass ${isOpen ? 'active' : ''} ${selected.length > 0 ? 'has-selection' : ''}`} onClick={() => setIsOpen(!isOpen)}>
+        <Icon size={18} className="icon-theme" />
+        <div className="selected-values">
+          {selected.length === 0 ? (
+            <span className="placeholder">{placeholder}</span>
+          ) : (
+            <span className="values-text">
+              {selected.length === options.length ? 'Todos' : selectedLabels.join(', ')}
+            </span>
+          )}
+        </div>
+        <ChevronDown size={14} className={`chevron ${isOpen ? 'rotate' : ''}`} />
+      </div>
+
+      {isOpen && (
+        <div className="multi-select-dropdown glass">
+          <div className="dropdown-actions">
+            <button onClick={() => selected.length === options.length ? onChange('none') : onChange('all')}>
+              {selected.length === options.length ? 'Desmarcar todos' : `Marcar todos (${options.length})`}
+            </button>
+          </div>
+          <div className="options-list scrollbar-custom">
+            {options.map(opt => (
+              <div
+                key={opt.id}
+                className={`option-item ${selected.includes(opt.id) ? 'selected' : ''}`}
+                onClick={() => onChange(opt.id)}
+              >
+                <div className="checkbox">
+                  {selected.includes(opt.id) && <Check size={12} />}
+                </div>
+                <span>{opt.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [trips, setTrips] = useState([]);
   const [points, setPoints] = useState([]);
@@ -66,11 +145,12 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   // Filters State
-  const [filterUser, setFilterUser] = useState('all');
+  const [filterUser, setFilterUser] = useState([]); // Array de IDs
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
-  const [filterTrip, setFilterTrip] = useState('all');
+  const [filterTrip, setFilterTrip] = useState([]); // Array de IDs
   const [selectedImage, setSelectedImage] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
 
   // UI State
   const [chartType, setChartType] = useState('danger');
@@ -123,8 +203,8 @@ function App() {
   // Filter Logic
   const filteredPoints = useMemo(() => {
     let result = points;
-    if (filterUser !== 'all') {
-      const userTripIds = trips.filter(t => t.user_id === filterUser).map(t => t.id);
+    if (filterUser.length > 0) {
+      const userTripIds = trips.filter(t => filterUser.includes(t.user_id)).map(t => t.id);
       result = result.filter(p => userTripIds.includes(p.trip_id));
     }
     if (filterStartDate || filterEndDate) {
@@ -139,15 +219,15 @@ function App() {
         }
       });
     }
-    if (filterTrip !== 'all') {
-      result = result.filter(p => p.trip_id === filterTrip);
+    if (filterTrip.length > 0) {
+      result = result.filter(p => filterTrip.includes(p.trip_id));
     }
     return result.filter(p => activeLayers[p.type]);
   }, [points, trips, filterUser, filterStartDate, filterEndDate, filterTrip, activeLayers]);
 
   const filteredTrips = useMemo(() => {
-    if (filterUser === 'all') return trips;
-    return trips.filter(t => t.user_id === filterUser);
+    if (filterUser.length === 0) return trips;
+    return trips.filter(t => filterUser.includes(t.user_id));
   }, [trips, filterUser]);
 
   // Statistics
@@ -187,8 +267,18 @@ function App() {
 
   return (
     <div className="dashboard-container">
+      {/* Sidebar Overlay (Mobile) */}
+      {isSidebarOpen && window.innerWidth <= 1024 && (
+        <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <div className="sidebar glass">
+      <div className={`sidebar glass ${isSidebarOpen ? 'open' : 'closed'}`}>
+        <div className="sidebar-header mobile-only">
+          <button onClick={() => setIsSidebarOpen(false)} className="close-sidebar-btn">
+            <X size={24} />
+          </button>
+        </div>
         <div className="sidebar-content">
           <div className="stats-grid">
             <div className="stat-card glass">
@@ -243,8 +333,14 @@ function App() {
       </div>
 
       {/* Main Content */}
-      < div className="main-content" >
+      <div className="main-content">
         <header className="filters-header glass">
+          <button
+            className="menu-toggle-btn"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          >
+            <Menu size={24} />
+          </button>
           <div className="filter-group range-group">
             <div className="range-input">
               <Calendar size={16} className="icon-theme" />
@@ -256,32 +352,43 @@ function App() {
             </div>
           </div>
 
-          <div className="filter-group select-group">
-            <Users size={20} className="icon-theme" />
-            <select value={filterUser} onChange={(e) => { setFilterUser(e.target.value); setFilterTrip('all'); }}>
-              <option value="all">Todos los usuarios</option>
-              {profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.full_name || p.id.split('-')[0]}</option>
-              ))}
-            </select>
+          <div className="filter-group-container">
+            <MultiSelectDropdown
+              label="Usuarios"
+              placeholder="Todos los usuarios"
+              icon={Users}
+              options={profiles.map(p => ({ id: p.id, label: p.full_name || p.id.split('-')[0] }))}
+              selected={filterUser}
+              onChange={(id) => {
+                if (id === 'all') setFilterUser(profiles.map(p => p.id));
+                else if (id === 'none') setFilterUser([]);
+                else {
+                  setFilterUser(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+                }
+                setFilterTrip([]);
+              }}
+            />
+
+            <MultiSelectDropdown
+              label="Viajes"
+              placeholder="Todos los viajes"
+              icon={Navigation}
+              options={filteredTrips.map(t => ({
+                id: t.id,
+                label: t.start_time ? format(parseISO(t.start_time), 'dd/MM HH:mm') : 'Viaje ' + t.id.split('-')[0]
+              }))}
+              selected={filterTrip}
+              onChange={(id) => {
+                if (id === 'all') setFilterTrip(filteredTrips.map(t => t.id));
+                else if (id === 'none') setFilterTrip([]);
+                else {
+                  setFilterTrip(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+                }
+              }}
+            />
           </div>
 
-          {filterUser !== 'all' && (
-            <div className="filter-group select-group">
-              <Navigation size={20} className="icon-theme" />
-              <select value={filterTrip} onChange={(e) => setFilterTrip(e.target.value)}>
-                <option value="all">Todos los viajes</option>
-                {filteredTrips.map(t => (
-                  <option key={t.id} value={t.id}>{t.start_time ? format(parseISO(t.start_time), 'dd/MM/yyyy HH:mm') : 'Viaje ' + t.id.split('-')[0]}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <div className="header-actions">
-            <button onClick={fetchInitialData} className="refresh-circle-btn">
-              <RefreshCcw size={20} />
-            </button>
           </div>
         </header>
 
@@ -293,6 +400,7 @@ function App() {
           )}
 
           <AutoFitBounds points={filteredPoints} trigger={fitTrigger} />
+          <MapResizer isSidebarOpen={isSidebarOpen} />
 
           {filteredPoints.map(point => (
             <Marker key={point.id} position={[point.latitude, point.longitude]} icon={getMarkerIcon(point.type)}>
