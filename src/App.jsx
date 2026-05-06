@@ -17,7 +17,8 @@ import {
   Menu,
   X,
   ChevronDown,
-  Check
+  Check,
+  Download
 } from 'lucide-react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
@@ -268,6 +269,77 @@ function App() {
     setActiveLayers(prev => ({ ...prev, [type]: !prev[type] }));
   };
 
+  // Download filtered points as CSV
+  const downloadPoints = () => {
+    if (filteredPoints.length === 0) return;
+
+    const headers = [
+      'Tipo',
+      'Usuario',
+      'Fecha',
+      'Latitud',
+      'Longitud',
+      'Adultos',
+      'Crías',
+      'Tipo de Peligro',
+      'Estado de Salud',
+      'URL de Foto',
+      'Notas',
+      'ID Viaje'
+    ];
+
+    const rows = filteredPoints.map(point => {
+      const trip = trips.find(t => t.id === point.trip_id);
+      const userName = trip?.user_name || 'Desconocido';
+      const dateStr = point.created_at ? format(parseISO(point.created_at), 'dd/MM/yyyy HH:mm:ss') : '';
+      
+      return [
+        point.type || '',
+        userName,
+        dateStr,
+        point.latitude || '',
+        point.longitude || '',
+        point.type === 'Avistamiento' ? (point.adults || 0) : '',
+        point.type === 'Avistamiento' ? (point.calves || 0) : '',
+        point.type === 'Peligro' ? (point.danger_type || '') : '',
+        point.type === 'Peligro' ? (point.health_status || '') : '',
+        point.photo_url || '',
+        point.notes || '',
+        point.trip_id || ''
+      ];
+    });
+
+    // BOM for Excel UTF-8 compatibility
+    const BOM = '\uFEFF';
+    const csvContent = BOM + [
+      headers.join(','),
+      ...rows.map(row =>
+        row.map(cell => {
+          const str = String(cell);
+          // Escape cells containing commas, quotes, or newlines
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        }).join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // Generate filename with current date
+    const now = new Date();
+    const dateTag = format(now, 'yyyy-MM-dd_HHmm');
+    link.href = url;
+    link.download = `bufeo_puntos_${dateTag}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="dashboard-container">
       {/* Sidebar Overlay (Mobile) */}
@@ -392,6 +464,16 @@ function App() {
           </div>
 
           <div className="header-actions">
+            <button
+              className="download-btn glass"
+              onClick={downloadPoints}
+              disabled={filteredPoints.length === 0}
+              title={filteredPoints.length === 0 ? 'No hay puntos para descargar' : `Descargar ${filteredPoints.length} puntos`}
+              id="download-points-btn"
+            >
+              <Download size={18} />
+              <span className="download-label">Descargar</span>
+            </button>
           </div>
         </header>
 
